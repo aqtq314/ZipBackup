@@ -111,6 +111,7 @@ public class Program
                 .ToArray();
 
             int filesToDelete = 0;
+            int dirsToDelete = 0;
             List<ZipFile> zipsToUpdate = new();
 
             foreach (ZipFile zip in zips)
@@ -127,6 +128,7 @@ public class Program
                         if (!dirsToAdd.Contains(entryName))     // does not exist on disk
                         {
                             zip.RemoveEntry(entry);
+                            dirsToDelete++;
                             zipChanged = true;
                         }
                         else
@@ -140,7 +142,8 @@ public class Program
                             filesToDelete++;
                             zipChanged = true;
                         }
-                        else if (File.GetLastWriteTimeUtc(diskPath) != entry.ModifiedTime)
+                        else if (File.GetLastWriteTimeUtc(diskPath) != entry.ModifiedTime ||
+                            new FileInfo(diskPath).Length != entry.UncompressedSize)
                         {
                             zip.RemoveEntry(entry);
                             zipChanged = true;
@@ -153,9 +156,6 @@ public class Program
                 if (zipChanged)
                     zipsToUpdate.Add(zip);
             }
-
-            Console.WriteLine($@"  - Files: {filesToAdd.Count} to add/update, {filesToDelete} to delete");
-            Console.WriteLine($@"  - Archives: {zipsToUpdate.Count} to update");
 
             // Adding new files
             foreach (string filePath in filesToAdd)
@@ -171,6 +171,10 @@ public class Program
 
             if (!zipsToUpdate.Contains(outZip))
                 zipsToUpdate.Add(outZip);
+
+            Console.WriteLine($@"  - Files: {filesToAdd.Count} to add/update, {filesToDelete} to delete");
+            Console.WriteLine($@"  - Dirs: {dirsToAdd.Count} to add/update, {dirsToDelete} to delete");
+            Console.WriteLine($@"  - Archives: {zipsToUpdate.Count} to update");
 
             // Saving changes
             foreach (ZipFile zip in zipsToUpdate.Reverse<ZipFile>())
