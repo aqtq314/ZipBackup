@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "ZipBackup": {
+      "commandName": "Project",
+      "commandLineArgs": "-c L:\\Backup\\Debug\\config.yaml"
+    }
+  }
+}
