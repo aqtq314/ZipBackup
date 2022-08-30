@@ -11,24 +11,48 @@ namespace ZipBackup
 {
     public static class PathUtil
     {
-        public static string GetPhysicalDirPath(string dirPath)
+        public static IEnumerable<string> ResolveDirs(string dirPattern)
         {
-            var dirInfo = new DirectoryInfo(dirPath);
+            var parentDirPattern = Path.GetDirectoryName(dirPattern);
 
-            if (dirInfo.Parent != null)
-            {
-                var outDirInfo = dirInfo.Parent.EnumerateDirectories(dirInfo.Name).FirstOrDefault() ??
-                    throw new DirectoryNotFoundException(dirPath);
+            if (parentDirPattern == null)  // drive root
+                yield return dirPattern.ToUpper();
 
-                return Path.Combine(GetPhysicalDirPath(dirInfo.Parent.FullName), outDirInfo.Name);
-            }
             else
             {
-                return dirInfo.Name.ToUpper();
+                var parentDirs = ResolveDirs(parentDirPattern);
+                foreach (var parentDir in parentDirs)
+                    foreach (var dir in Directory.EnumerateDirectories(parentDir, Path.GetFileName(dirPattern)))
+                        yield return dir;
             }
         }
 
-        public static string GetValidatedDirPath(string dirPath, string? relativePathBase = null, bool createOnNeed = false)
+        public static IEnumerable<string> ResolveDirs(string dirPattern, string? relativePathBase = null)
+        {
+            try
+            {
+                if (!Path.IsPathRooted(dirPattern))
+                {
+                    if (string.IsNullOrEmpty(relativePathBase))
+                        dirPattern = Path.GetFullPath(dirPattern);
+                    else
+                        dirPattern = Path.GetFullPath(dirPattern, relativePathBase);
+                }
+
+                return ResolveDirs(dirPattern);
+            }
+            catch (Exception ex)
+            {
+                throw new FormatException($@"Error resolving dir {dirPattern}", ex);
+            }
+        }
+
+        public static string ResolveDir(string dirPath)
+        {
+            return ResolveDirs(dirPath).FirstOrDefault() ?? throw new DirectoryNotFoundException(dirPath);
+        }
+
+        public static string ResolveOrCreateDir(string dirPath, string? relativePathBase = null, bool createOnNeed = false)
         {
             try
             {
@@ -43,7 +67,7 @@ namespace ZipBackup
                 if (!Directory.Exists(dirPath) && createOnNeed)
                     Directory.CreateDirectory(dirPath);
 
-                return GetPhysicalDirPath(dirPath);
+                return ResolveDir(dirPath);
             }
             catch (Exception ex)
             {

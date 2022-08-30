@@ -25,10 +25,10 @@ public class Program
         {
             var configDir = Path.GetDirectoryName(configFilePath)!;
 
-            RootFrom = PathUtil.GetValidatedDirPath(RootFrom);
-            RootTo = PathUtil.GetValidatedDirPath(RootTo, configDir, true);
-            Add = Array.ConvertAll(Add, dirPath => PathUtil.GetValidatedDirPath(dirPath, RootFrom));
-            Ignore = Array.ConvertAll(Ignore, dirPath => PathUtil.GetValidatedDirPath(dirPath, RootFrom));
+            RootFrom = PathUtil.ResolveDir(RootFrom);
+            RootTo = PathUtil.ResolveOrCreateDir(RootTo, configDir, true);
+            Add = Add.SelectMany(dirPattern => PathUtil.ResolveDirs(dirPattern, RootFrom)).ToArray();
+            Ignore = Ignore.SelectMany(dirPattern => PathUtil.ResolveDirs(dirPattern, RootFrom)).ToArray();
         }
     }
 
@@ -107,6 +107,7 @@ public class Program
                 {
                     CompressionLevel = config.CompressionLevel,
                     MaxOutputSegmentSize64 = config.SplitSize,
+                    UseZip64WhenSaving = Zip64Option.AsNecessary,
                 })
                 .ToArray();
 
@@ -163,13 +164,20 @@ public class Program
             dirsToAdd.Remove("");
 
             var outZip = zips[^1];
+            bool outZipChanged = false;
             foreach (string dirPath in dirsToAdd.OrderBy(path => path))
+            {
                 outZip.AddDirectoryByName(dirPath);
+                outZipChanged = true;
+            }
 
             foreach (string filePath in filesToAdd.OrderBy(path => path))
+            {
                 outZip.AddFile(Path.Combine(baseDir, filePath), Path.GetDirectoryName(filePath));
+                outZipChanged = true;
+            }
 
-            if (!zipsToUpdate.Contains(outZip))
+            if (outZipChanged && !zipsToUpdate.Contains(outZip))
                 zipsToUpdate.Add(outZip);
 
             Console.WriteLine($@"  - Files: {filesToAdd.Count} to add/update, {filesToDelete} to delete");
@@ -181,24 +189,27 @@ public class Program
             {
                 string zipFileName = Path.GetFileName(zip.Name);
 
-                using var zipPb = new ProgressBar(0, $@"[0/0] {zipFileName}");
+                using var zipPb = new ProgressBar(0, $@"[0/0] Starting ...");
 
                 zip.SaveProgress += (sender, e) =>
                 {
-                    if (e.EventType != ZipProgressEventType.Saving_EntryBytesRead)
-                        GC.KeepAlive(new object());
-
                     if (e.EventType == ZipProgressEventType.Saving_BeforeWriteEntry)
+                    {
                         if (zipPb.MaxTicks != e.EntriesTotal)
                             zipPb.MaxTicks = e.EntriesTotal;
 
-                    if (e.EventType == ZipProgressEventType.Saving_AfterWriteEntry)
-                        zipPb.Tick(e.EntriesSaved, $@"[{e.EntriesSaved}/{e.EntriesTotal}] {zipFileName}");
+                        zipPb.Tick(e.EntriesSaved, $@"[{e.EntriesSaved}/{e.EntriesTotal}] {e.CurrentEntry.FileName}");
+                    }
+
+                    if (e.EventType == ZipProgressEventType.Saving_Completed)
+                        zipPb.Tick(e.EntriesSaved, $@"[{e.EntriesSaved}/{e.EntriesTotal}] Done");
                 };
 
                 zip.Save();
-                zip.Dispose();
             }
+
+            foreach (ZipFile zip in zips)
+                zip.Dispose();
 
             Console.WriteLine();
         }
