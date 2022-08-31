@@ -92,6 +92,10 @@ public class Program
             }
             ListFiles(baseDir);
 
+            foreach (string filePath in filesToAdd)
+                dirsToAdd.Add(Path.GetDirectoryName(filePath)!);
+            dirsToAdd.Remove("");
+
             // Exclude/Delete existing files in archives
             string zipDir = Path.Combine(config.RootTo, Path.GetRelativePath(config.RootFrom, baseDir));
             Directory.CreateDirectory(zipDir);
@@ -159,10 +163,6 @@ public class Program
             }
 
             // Adding new files
-            foreach (string filePath in filesToAdd)
-                dirsToAdd.Add(Path.GetDirectoryName(filePath)!);
-            dirsToAdd.Remove("");
-
             var outZip = zips[^1];
             bool outZipChanged = false;
             foreach (string dirPath in dirsToAdd.OrderBy(path => path))
@@ -194,15 +194,11 @@ public class Program
                 zip.SaveProgress += (sender, e) =>
                 {
                     if (e.EventType == ZipProgressEventType.Saving_BeforeWriteEntry)
-                    {
                         if (zipPb.MaxTicks != e.EntriesTotal)
                             zipPb.MaxTicks = e.EntriesTotal;
 
+                    if (e.EventType == ZipProgressEventType.Saving_AfterWriteEntry)
                         zipPb.Tick(e.EntriesSaved, $@"[{e.EntriesSaved}/{e.EntriesTotal}] {e.CurrentEntry.FileName}");
-                    }
-
-                    if (e.EventType == ZipProgressEventType.Saving_Completed)
-                        zipPb.Tick(e.EntriesSaved, $@"[{e.EntriesSaved}/{e.EntriesTotal}] Done");
                 };
 
                 zip.Save();
