@@ -1,6 +1,6 @@
 ﻿# ZipBakcup
 
-A utility program for one-directional sync to zip archives.
+A utility program for one-directional sync to zip archives. Requires .NET 6 on Windows to run.
 
 I created this program for my own data backup needs (photos, docs, etc.). Backed-up data are zipped and optionally split into multiple file segments for easier transfer afterwards (e.g. upload to an online drive).
 
@@ -42,14 +42,12 @@ ZipBackup -c <config.yaml>
 
   Add:
   - D:\Git
+  - D:\Git\*                # This will backup every folder separately
   - D:\Games
+  - D:\Games\*
 
   Ignore: []
 
 ```
-
-## To Do
-
-- Handle Link File
 
 
