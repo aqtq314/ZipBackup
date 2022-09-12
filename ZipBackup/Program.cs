@@ -13,6 +13,12 @@ public class Program
     public static Deserializer yamlDeserializer = new();
     public static ProgressDisplay disp = new(minUpdateIntervalMs: 100);
 
+    public abstract record PathAttr()
+    {
+        public record Dir() : PathAttr() { }
+        public record File(long fileLength, DateTime modTime) : PathAttr() { }
+    }
+
     public record struct APath(string PathName, bool IsDirectory)
     {
         public bool IsFile => !IsDirectory;
@@ -30,7 +36,7 @@ public class Program
     public record ZipOp
     {
         public record Del(ZipFile zip, ZipEntry entry) : ZipOp();
-        public record NOp(APath path) : ZipOp();
+        public record NOp(string path) : ZipOp();
     }
 
     public class ConfigItem
@@ -94,35 +100,69 @@ public class Program
         foreach (string srcBaseDir in config.Add)
         {
             // List files in input currDir
-            disp.Write(CStr.Y($"{srcBaseDir} "), "(comparing)");
+            disp.Write($"{srcBaseDir} ");
             HashSet<string> ignoredDirs = config.Add.Concat(config.Ignore)
                 .Where(dir => dir.StartsWith(srcBaseDir) && dir != srcBaseDir)
                 .ToHashSet();
 
-            IEnumerable<APath> ListFilesP(string currDir)
+            disp.Write($"{srcBaseDir} ", CStr.Y($"0"));
+            IEnumerable<string> SrcTraverseRec(string currDir)
             {
                 if (ignoredDirs.Contains(currDir))
-                    return Enumerable.Empty<APath>();
+                    return Enumerable.Empty<string>();
 
                 return Enumerable
                     .Repeat(
-                        APath.Dir(Path.GetRelativePath(srcBaseDir, currDir)),
+                        Path.GetRelativePath(srcBaseDir, currDir),
                         currDir != srcBaseDir ? 1 : 0)
                     .Concat(
                         Directory.EnumerateFiles(currDir)
-                        .Select(filePath => APath.File(Path.GetRelativePath(srcBaseDir, filePath))))
+                        .Select(filePath => Path.GetRelativePath(srcBaseDir, filePath)))
                     .Concat(
                         Directory.EnumerateDirectories(currDir)
-                        .SelectMany(subDir => ListFilesP(subDir)));
+                        .SelectMany(subDir => SrcTraverseRec(subDir)));
             }
 
-            HashSet<APath> srcPathSet = ListFilesP(srcBaseDir).ToHashSet();
-            srcPathSet.UnionWith(
-                srcPathSet
-                    .Where(path => path.IsFile)
-                    .Select(filePath => APath.Dir(Path.GetDirectoryName(filePath.PathName)!))
-                    .ToList());
-            srcPathSet.Remove(APath.Dir(""));
+            var srcPathQuery = SrcTraverseRec(srcBaseDir).AsParallel().Select(path =>
+            {
+                var fullPath = Path.Combine(srcBaseDir, path);
+                if (Directory.Exists(fullPath))
+                    return new KeyValuePair<string, PathAttr>(path, new PathAttr.Dir());
+
+                else
+                {
+                    var fileInfo = new FileInfo(fullPath);
+                    return new KeyValuePair<string, PathAttr>(path, new PathAttr.File(fileInfo.Length, fileInfo.LastWriteTimeUtc));
+                }
+            });
+
+            Dictionary<string, PathAttr> srcPathDict = new();
+            foreach (var srcPathPair in srcPathQuery)
+            {
+                srcPathDict.TryAdd(srcPathPair.Key, srcPathPair.Value);
+                if (srcPathPair.Value is not PathAttr.Dir)
+                    srcPathDict.TryAdd(Path.GetDirectoryName(srcPathPair.Key)!, new PathAttr.Dir());
+
+                disp.Tick($"{srcBaseDir} ", CStr.Y($"{srcPathDict.Count}"));
+            }
+            srcPathDict.Remove("");
+
+            var srcPathCount = srcPathDict.Count;
+            disp.Write($"{srcBaseDir} ", CStr.Y($"{srcPathCount}"));
+
+
+
+            //HashSet<APath> srcPathSet = SrcTraverseRec(srcBaseDir).ToHashSet();
+            //HashSet<APath> srcPathSet = new();
+            //srcPathSet.UnionWith(
+            //    srcPathSet
+            //        .Where(path => path.IsFile)
+            //        .Select(filePath => APath.Dir(Path.GetDirectoryName(filePath.PathName)!))
+            //        .ToList());
+            //srcPathSet.Remove(APath.Dir(""));
+
+
+
 
             //var physicalPathSet = physicalPaths.ToImmutableHashSet();
 
@@ -160,32 +200,38 @@ public class Program
                 .Where(path => path != outZipPath)
                 .OrderBy(path => path)
                 .Append(outZipPath)
-                .Select(zipPath => new ZipFile(zipPath, Encoding.UTF8)
+                .Select(zipPath =>
                 {
-                    CompressionLevel = config.CompressionLevel,
-                    MaxOutputSegmentSize64 = config.SplitSize,
-                    UseZip64WhenSaving = Zip64Option.AsNecessary,
+                    var zip = File.Exists(zipPath) ?
+                        ZipFile.Read(zipPath, new ReadOptions { Encoding = Encoding.UTF8 }) :
+                        new ZipFile(zipPath, Encoding.UTF8);
+                    zip.CompressionLevel = config.CompressionLevel;
+                    zip.MaxOutputSegmentSize64 = config.SplitSize;
+                    zip.UseZip64WhenSaving = Zip64Option.AsNecessary;
+                    return zip;
                 })
                 .ToArray();
 
             var zipsWithEntries = zips.SelectMany(zip => zip.Entries.Select(entry => (zip, entry))).ToList();
+            disp.Write($"{srcBaseDir} ", CStr.Y($"{srcPathCount} "), CStr.DY($"{zipsWithEntries.Count}"));
 
             var zipOps = zipsWithEntries.AsParallel()
                 .Select(zipWithEntry =>
                 {
                     var (zip, entry) = zipWithEntry;
-                    var pathName = entry.FileName.Replace('/', '\\').TrimEnd('\\');
-                    var path = new APath(pathName, IsDirectory: entry.IsDirectory);
-                    var diskPath = Path.Combine(srcBaseDir, pathName);
+                    var path = entry.FileName.Replace('/', '\\').TrimEnd('\\');
+                    var fullPath = Path.Combine(srcBaseDir, path);
 
-                    if (!srcPathSet.Contains(path))    // does not exist on disk
+                    if (srcPathDict.TryGetValue(path, out var pathAttr))
+                    {
+                        if (pathAttr is PathAttr.File fileAttr)
+                            if (fileAttr.fileLength != entry.UncompressedSize || fileAttr.modTime != entry.ModifiedTime)    // different version
+                                return (ZipOp)new ZipOp.Del(zip, entry);
+
+                        return (ZipOp)new ZipOp.NOp(path);
+                    }
+                    else    // does not exist on disk
                         return (ZipOp)new ZipOp.Del(zip, entry);
-                    else if (!entry.IsDirectory &&
-                        (File.GetLastWriteTimeUtc(diskPath) != entry.ModifiedTime ||
-                            new FileInfo(diskPath).Length != entry.UncompressedSize))    // different version
-                        return new ZipOp.Del(zip, entry);
-                    else
-                        return new ZipOp.NOp(path);
                 })
                 .ToList();
 
@@ -202,13 +248,13 @@ public class Program
                         break;
 
                     case ZipOp.NOp(var path):
-                        srcPathSet.Remove(path);
+                        srcPathDict.Remove(path);
                         break;
                 }
             }
 
             var outZip = zips[^1];
-            if (srcPathSet.Count > 0)
+            if (srcPathDict.Count > 0)
                 pendingZips.Add(outZip);
 
             ////////////////////////////////////
@@ -264,15 +310,18 @@ public class Program
             ////////////////////////////////////
 
             // Adding new files
-            foreach (var path in srcPathSet.OrderBy(path => path.PathName))
+            foreach (var pathPair in srcPathDict.OrderBy(pathPair => pathPair.Key))
             {
-                if (path.IsDirectory)
-                    outZip.AddDirectoryByName(path.PathName);
+                var (path, pathAttr) = pathPair;
+                if (pathAttr is PathAttr.Dir)
+                    outZip.AddDirectoryByName(path);
                 else
-                    outZip.AddFile(Path.Combine(srcBaseDir, path.PathName), Path.GetDirectoryName(path.PathName));
+                    outZip.AddFile(Path.Combine(srcBaseDir, path), Path.GetDirectoryName(path));
             }
 
-            disp.WriteLine(CStr.Y($"{srcBaseDir} "), CStr.G($"+{srcPathSet.Count} "), CStr.R($"-{deleteCount}"));
+            disp.WriteLine(
+                $"{srcBaseDir} ", CStr.Y($"{srcPathCount} "), CStr.DY($"{zipsWithEntries.Count} "),
+                CStr.G($"+{srcPathDict.Count} "), CStr.R($"-{deleteCount}"));
 
             //////////////////////////////////////
             //foreach (string dirPath in dirsToAdd.OrderBy(path => path))
@@ -290,9 +339,9 @@ public class Program
             //if (outZipChanged && !zipsToUpdate.Contains(outZip))
             //    zipsToUpdate.Add(outZip);
 
-            //Console.WriteLine($@"  - Files: {filesToAdd.Count} to add/update, {filesToDelete} to delete");
-            //Console.WriteLine($@"  - Dirs: {dirsToAdd.Count} to add/update, {dirsToDelete} to delete");
-            //Console.WriteLine($@"  - Archives: {zipsToUpdate.Count} to update");
+            //Console.WriteLine($@"  Files: {filesToAdd.Count} to add/update, {filesToDelete} to delete");
+            //Console.WriteLine($@"  Dirs: {dirsToAdd.Count} to add/update, {dirsToDelete} to delete");
+            //Console.WriteLine($@"  Archives: {zipsToUpdate.Count} to update");
             //////////////////////////////////////
 
             // Saving changes
@@ -304,7 +353,7 @@ public class Program
                 int entriesTotal = 0;
                 zip.SaveProgress += (sender, e) =>
                 {
-                    if (e.EventType == ZipProgressEventType.Saving_AfterWriteEntry)
+                    if (e.EventType == ZipProgressEventType.Saving_BeforeWriteEntry)
                     {
                         entriesTotal = e.EntriesTotal;
                         disp.Tick($"  ", CStr.Y($"{e.EntriesSaved}"), $"/{entriesTotal} ",

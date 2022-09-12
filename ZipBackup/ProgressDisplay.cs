@@ -63,8 +63,8 @@ namespace ZipBackup
                 if (text.Color != null)
                     Console.ForegroundColor = text.Color.Value;
 
-                if (printedLength + text.Text.Length >= maxWidth)
-                    text = text with { Text = text.Text.Substring(0, maxWidth - printedLength - 1) };
+                //if (printedLength + text.Text.Length >= maxWidth)
+                //    text = text with { Text = text.Text.Substring(0, maxWidth - printedLength - 1) };
 
                 Console.Write(text.Text);
                 printedLength += text.Text.Length;
