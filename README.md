@@ -11,8 +11,7 @@ This program is NOT thoroughly tested. Use at your own risk.
 ## Usage
 
 ```
-ZipBackup --config <config.yaml>
-ZipBackup -c <config.yaml>
+ZipBackup <config.yaml>
 ```
 
 ## Config File Spec

@@ -2,11 +2,11 @@
   "profiles": {
     "ZipBackup-Debug": {
       "commandName": "Project",
-      "commandLineArgs": "-c L:\\Backup\\Debug\\config.yaml"
+      "commandLineArgs": "L:\\Backup\\Debug\\config.yaml"
     },
     "ZipBackup-Current": {
       "commandName": "Project",
-      "commandLineArgs": "-c \"L:\\Backup\\Current Config.yaml\""
+      "commandLineArgs": "\"L:\\Backup\\Current Config.yaml\""
     }
   }
 }

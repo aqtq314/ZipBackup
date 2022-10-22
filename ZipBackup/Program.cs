@@ -4,6 +4,7 @@ using System.CommandLine;
 using System.Collections.Immutable;
 using System.Text;
 using YamlDotNet.Serialization;
+using System.Drawing.Printing;
 
 namespace ZipBackup;
 
@@ -61,24 +62,24 @@ public class Program
 
     public static void Main(string[] args)
     {
+        // Needed for text encoding to work - do not delete
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
-        var optionConfigFilePath = new Option<string?>(aliases: new[] { "--config", "-c" })
+        if (args.Length == 1)
         {
-            Description = "Input YAML config file",
-            IsRequired = true,
-        };
+            var configFilePath = args[0];
+            RunAll(configFilePath);
 
-        var argparse = new RootCommand("A utility program for one-directional sync to zip archives.");
-        argparse.Add(optionConfigFilePath);
-
-        argparse.SetHandler(RunAll, optionConfigFilePath);
-        argparse.Invoke(args);
-
-        Console.ForegroundColor = ConsoleColor.Gray;
-        Console.WriteLine();
-        Console.Write("Done. Press enter to exit. ");
-        Console.ReadLine();
+            Console.ForegroundColor = ConsoleColor.Gray;
+            Console.WriteLine();
+            Console.Write("Done. Press enter to exit. ");
+            Console.ReadLine();
+        }
+        else
+        {
+            Console.Error.WriteLine($"Usage:");
+            Console.Error.WriteLine($"    {Path.GetFileName(Environment.ProcessPath)} <config.yaml>");
+        }
     }
 
     public static void RunAll(string? configFilePath)
@@ -361,7 +362,7 @@ public class Program
                     }
                 };
 
-                zip.Save();
+                zip.SaveSafe();
                 disp.WriteLine($"  ", CStr.Y($"{entriesTotal}"), $"/{entriesTotal} >> ", CStr.W($"{zipFileName}"));
             }
 
