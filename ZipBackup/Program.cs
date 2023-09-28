@@ -1,9 +1,7 @@
 ﻿using Ionic.Zip;
 using Ionic.Zlib;
-using System.Collections.Immutable;
 using System.Text;
 using YamlDotNet.Serialization;
-using System.Drawing.Printing;
 
 namespace ZipBackup;
 
@@ -150,46 +148,7 @@ public class Program
             var srcPathCount = srcPathDict.Count;
             disp.Write($"{srcBaseDir} ", CStr.Y($"{srcPathCount}"));
 
-
-
-            //HashSet<APath> srcPathSet = SrcTraverseRec(srcBaseDir).ToHashSet();
-            //HashSet<APath> srcPathSet = new();
-            //srcPathSet.UnionWith(
-            //    srcPathSet
-            //        .Where(path => path.IsFile)
-            //        .Select(filePath => APath.Dir(Path.GetDirectoryName(filePath.PathName)!))
-            //        .ToList());
-            //srcPathSet.Remove(APath.Dir(""));
-
-
-
-
-            //var physicalPathSet = physicalPaths.ToImmutableHashSet();
-
-            //////////////////
-            //HashSet<string> dirsToAdd = new();
-            //HashSet<string> filesToAdd = new();
-            //void ListFiles(string currDir)
-            //{
-            //    if (ignoredDirs.Contains(currDir)) return;
-
-            //    if (currDir != baseDir)
-            //        dirsToAdd.Add(Path.GetRelativePath(baseDir, currDir));
-
-            //    foreach (string filePath in Directory.EnumerateFiles(currDir))  // slow
-            //        filesToAdd.Add(Path.GetRelativePath(baseDir, filePath));
-
-            //    foreach (string subDir in Directory.EnumerateDirectories(currDir))
-            //        ListFiles(subDir);
-            //}
-            //ListFiles(baseDir);
-
-            //foreach (string filePath in filesToAdd)
-            //    dirsToAdd.Add(Path.GetDirectoryName(filePath)!);
-            //dirsToAdd.Remove("");
-            ///////////////////
-
-            // Traversing changes
+            // Traverse changes
             string zipDir = Path.Combine(config.RootTo, Path.GetRelativePath(config.RootFrom, srcBaseDir));
             Directory.CreateDirectory(zipDir);
 
@@ -257,59 +216,7 @@ public class Program
             if (srcPathDict.Count > 0)
                 pendingZips.Add(outZip);
 
-            ////////////////////////////////////
-            //int filesToDelete = 0;
-            //int dirsToDelete = 0;
-            //List<ZipFile> zipsToUpdate = new();
-
-            //foreach (ZipFile zip in zips)
-            //{
-            //    bool zipChanged = false;
-
-            //    //var zipEntries = zip.Entries.ToDictionary(entry => entry.FileName.Replace('/', '\\').TrimEnd('\\'));
-            //    //var zipEntriesQuery = zipEntries.AsParallel();
-
-            //    foreach (ZipEntry entry in zip.Entries.ToList())
-            //    {
-            //        var entryName = entry.FileName.Replace('/', '\\').TrimEnd('\\');
-            //        var diskPath = Path.Combine(baseDir, entryName);
-
-            //        if (entry.IsDirectory)
-            //        {
-            //            if (!dirsToAdd.Contains(entryName))     // does not exist on disk
-            //            {
-            //                zip.RemoveEntry(entry);
-            //                dirsToDelete++;
-            //                zipChanged = true;
-            //            }
-            //            else
-            //                dirsToAdd.Remove(entryName);
-            //        }
-            //        else
-            //        {
-            //            if (!filesToAdd.Contains(entryName))    // does not exist on disk
-            //            {
-            //                zip.RemoveEntry(entry);
-            //                filesToDelete++;
-            //                zipChanged = true;
-            //            }
-            //            else if (File.GetLastWriteTimeUtc(diskPath) != entry.ModifiedTime ||
-            //                new FileInfo(diskPath).Length != entry.UncompressedSize)    // too slow
-            //            {
-            //                zip.RemoveEntry(entry);
-            //                zipChanged = true;
-            //            }
-            //            else
-            //                filesToAdd.Remove(entryName);
-            //        }
-            //    }
-
-            //    if (zipChanged)
-            //        zipsToUpdate.Add(zip);
-            //}
-            ////////////////////////////////////
-
-            // Adding new files
+            // Add new files
             foreach (var pathPair in srcPathDict.OrderBy(pathPair => pathPair.Key))
             {
                 var (path, pathAttr) = pathPair;
@@ -323,28 +230,7 @@ public class Program
                 $"{srcBaseDir} ", CStr.Y($"{srcPathCount} "), CStr.DY($"{zipsWithEntries.Count} "),
                 CStr.G($"+{srcPathDict.Count} "), CStr.R($"-{deleteCount}"));
 
-            //////////////////////////////////////
-            //foreach (string dirPath in dirsToAdd.OrderBy(path => path))
-            //{
-            //    outZip.AddDirectoryByName(dirPath);
-            //    outZipChanged = true;
-            //}
-
-            //foreach (string filePath in filesToAdd.OrderBy(path => path))
-            //{
-            //    outZip.AddFile(Path.Combine(baseDir, filePath), Path.GetDirectoryName(filePath));
-            //    outZipChanged = true;
-            //}
-
-            //if (outZipChanged && !zipsToUpdate.Contains(outZip))
-            //    zipsToUpdate.Add(outZip);
-
-            //Console.WriteLine($@"  Files: {filesToAdd.Count} to add/update, {filesToDelete} to delete");
-            //Console.WriteLine($@"  Dirs: {dirsToAdd.Count} to add/update, {dirsToDelete} to delete");
-            //Console.WriteLine($@"  Archives: {zipsToUpdate.Count} to update");
-            //////////////////////////////////////
-
-            // Saving changes
+            // Save changes
             foreach (ZipFile zip in pendingZips.OrderBy(zip => (zip.Name != outZipPath, zip.Name)))
             {
                 string zipFileName = Path.GetFileName(zip.Name);
@@ -361,33 +247,45 @@ public class Program
                     }
                 };
 
+                // TODO remove empty archive
                 zip.SaveSafe();
                 disp.WriteLine($"  ", CStr.Y($"{entriesTotal}"), $"/{entriesTotal} >> ", CStr.W($"{zipFileName}"));
             }
 
-            //////////////////////////////////////
-            //foreach (ZipFile zip in zipsToUpdate.Reverse<ZipFile>())
-            //{
-            //    string zipFileName = Path.GetFileName(zip.Name);
-
-            //    using var zipPb = new ProgressBar(0, $@"[0/0] Starting ...");
-
-            //    zip.SaveProgress += (sender, e) =>
-            //    {
-            //        if (e.EventType == ZipProgressEventType.Saving_BeforeWriteEntry)
-            //            if (zipPb.MaxTicks != e.EntriesTotal)
-            //                zipPb.MaxTicks = e.EntriesTotal;
-
-            //        if (e.EventType == ZipProgressEventType.Saving_AfterWriteEntry)
-            //            zipPb.Tick(e.EntriesSaved, $@"[{e.EntriesSaved}/{e.EntriesTotal}] {e.CurrentEntry.FileName}");
-            //    };
-
-            //    zip.Save();
-            //}
-            //////////////////////////////////////
-
             foreach (ZipFile zip in zips)
                 zip.Dispose();
         }
+
+        // Look for unlisted directories
+        var zipDirs = config.Add
+            .Concat(config.Ignore)
+            .Select(srcBaseDir => Path.Combine(config.RootTo, Path.GetRelativePath(config.RootFrom, srcBaseDir)))
+            .ToList();
+
+        var zipDirsToDel = Directory.EnumerateDirectories(config.RootTo, "*", SearchOption.AllDirectories)
+            .Except(zipDirs)
+            .OrderByDescending(path => path.Length)
+            .ToList();
+
+        disp.WriteLine();
+        foreach (var zipDir in zipDirsToDel)
+        {
+            // Clear files in directory (not recursive)
+            foreach (var zipPath in Directory.EnumerateFiles(zipDir))
+            {
+                disp.WriteLine(CStr.DR("DEL "), CStr.DY(zipPath));
+                File.Delete(zipPath);
+            }
+
+            // Remove dir if empty
+            if (!(Directory.EnumerateDirectories(zipDir).Any() || Directory.EnumerateFiles(zipDir).Any()))
+            {
+                disp.WriteLine(CStr.DR("DEL "), zipDir);
+                Directory.Delete(zipDir);
+            }
+        }
+
+        // Export validated config
+        File.WriteAllText(config.RootTo + ".yaml", yamlSerializer.Serialize(config), Encoding.UTF8);
     }
 }
